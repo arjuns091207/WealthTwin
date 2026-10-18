@@ -1,0 +1,37 @@
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: wealthtwin-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: wealthtwin
+      POSTGRES_PASSWORD: wealthtwin_dev
+      POSTGRES_DB: wealthtwin
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wealthtwin -d wealthtwin"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    container_name: wealthtwin-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
