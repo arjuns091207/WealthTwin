@@ -1,7 +1,8 @@
-from datetime import datetime, timezone
+﻿from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException
 
+from app.api.portfolio import router as portfolio_router
 from app.db.session import check_database_connection
 
 
@@ -10,6 +11,8 @@ app = FastAPI(
     version="0.1.0",
     description="Financial Digital Twin Platform",
 )
+
+app.include_router(portfolio_router)
 
 
 @app.get("/health")
