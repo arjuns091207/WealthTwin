@@ -1,4 +1,4 @@
-﻿from fastapi.testclient import TestClient
+from fastapi.testclient import TestClient
 
 from app.main import app
 from app.services.scenario_report import (
@@ -102,3 +102,52 @@ def test_report_endpoint_rejects_invalid_scenario_id():
 
     assert response.status_code == 422
 
+
+
+def test_changed_scenario_id_changes_fingerprint():
+    first_payload = sample_payload()
+    second_payload = sample_payload()
+    second_payload["scenario_id"] = "market-crash-02"
+
+    first = create_scenario_report(ScenarioReportRequest(**first_payload))
+    second = create_scenario_report(ScenarioReportRequest(**second_payload))
+
+    assert first["input_fingerprint"] != second["input_fingerprint"]
+
+
+def test_reordering_positions_changes_fingerprint():
+    first_payload = sample_payload()
+    second_payload = sample_payload()
+    second_payload["positions"].reverse()
+
+    first = create_scenario_report(ScenarioReportRequest(**first_payload))
+    second = create_scenario_report(ScenarioReportRequest(**second_payload))
+
+    assert first["input_fingerprint"] != second["input_fingerprint"]
+
+
+def test_report_endpoint_rejects_empty_positions():
+    payload = sample_payload()
+    payload["positions"] = []
+
+    response = client.post("/api/v1/scenarios/report", json=payload)
+
+    assert response.status_code == 422
+
+
+def test_report_endpoint_rejects_more_than_500_positions():
+    payload = sample_payload()
+    payload["positions"] = [payload["positions"][0]] * 501
+
+    response = client.post("/api/v1/scenarios/report", json=payload)
+
+    assert response.status_code == 422
+
+
+def test_report_endpoint_rejects_nonfinite_financial_input():
+    payload = sample_payload()
+    payload["positions"][0]["quantity"] = "NaN"
+
+    response = client.post("/api/v1/scenarios/report", json=payload)
+
+    assert response.status_code == 422
