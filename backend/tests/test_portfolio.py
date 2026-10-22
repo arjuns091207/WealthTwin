@@ -1,4 +1,4 @@
-﻿from fastapi.testclient import TestClient
+from fastapi.testclient import TestClient
 
 from app.main import app
 
@@ -125,6 +125,57 @@ def test_portfolio_valuation_rejects_more_than_500_positions():
     response = client.post(
         "/api/v1/portfolio/valuation",
         json={"positions": positions},
+    )
+
+    assert response.status_code == 422
+
+
+def test_portfolio_rejects_infinite_quantity():
+    response = client.post(
+        "/api/v1/portfolio/valuation",
+        json={
+            "positions": [
+                {
+                    "symbol": "ASSET-A",
+                    "quantity": "Infinity",
+                    "price_per_unit": "100",
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_portfolio_rejects_infinite_price():
+    response = client.post(
+        "/api/v1/portfolio/valuation",
+        json={
+            "positions": [
+                {
+                    "symbol": "ASSET-A",
+                    "quantity": "1",
+                    "price_per_unit": "Infinity",
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_portfolio_rejects_nan_price():
+    response = client.post(
+        "/api/v1/portfolio/valuation",
+        json={
+            "positions": [
+                {
+                    "symbol": "ASSET-A",
+                    "quantity": "1",
+                    "price_per_unit": "NaN",
+                }
+            ]
+        },
     )
 
     assert response.status_code == 422

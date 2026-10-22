@@ -1,7 +1,8 @@
 ﻿from decimal import Decimal
 
 from fastapi import APIRouter
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
 
 router = APIRouter(prefix="/api/v1/portfolio", tags=["Portfolio"])
 
@@ -10,6 +11,13 @@ class Position(BaseModel):
     symbol: str = Field(min_length=1, max_length=20)
     quantity: Decimal = Field(gt=0)
     price_per_unit: Decimal = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_finite_values(self):
+        values = (self.quantity, self.price_per_unit)
+        if not all(value.is_finite() for value in values):
+            raise ValueError("Financial inputs must be finite")
+        return self
 
 
 class PortfolioValuationRequest(BaseModel):
