@@ -1,8 +1,9 @@
-﻿from datetime import datetime, timezone
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException
 
 from app.api.portfolio import router as portfolio_router
+from app.api.scenarios import router as scenarios_router
 from app.db.session import check_database_connection
 
 
@@ -13,6 +14,7 @@ app = FastAPI(
 )
 
 app.include_router(portfolio_router)
+app.include_router(scenarios_router)
 
 
 @app.get("/health")
