@@ -171,3 +171,100 @@ def test_zero_shock_preserves_portfolio_value():
     assert Decimal(str(data["total_after"])) == Decimal("376.50")
     assert Decimal(str(data["total_change"])) == Decimal("0")
 
+
+
+def test_loss_attribution_separates_losses_from_offsetting_gains():
+    response = client.post(
+        "/api/v1/scenarios/stress",
+        json={
+            "positions": [
+                {
+                    "symbol": "LOSER",
+                    "quantity": "10",
+                    "price_per_unit": "100",
+                    "shock_percent": "-20",
+                },
+                {
+                    "symbol": "WINNER",
+                    "quantity": "5",
+                    "price_per_unit": "100",
+                    "shock_percent": "10",
+                },
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    positions = {item["symbol"]: item for item in data["positions"]}
+
+    assert Decimal(str(data["gross_losses"])) == Decimal("200")
+    assert Decimal(str(data["total_gains"])) == Decimal("50")
+    assert Decimal(str(data["total_change"])) == Decimal("-150")
+    assert Decimal(str(positions["LOSER"]["loss_contribution_percent"])) == Decimal("100")
+    assert Decimal(str(positions["WINNER"]["loss_contribution_percent"])) == Decimal("0")
+
+
+def test_loss_contributions_sum_to_100_percent():
+    response = client.post(
+        "/api/v1/scenarios/stress",
+        json={
+            "positions": [
+                {
+                    "symbol": "LOSER-A",
+                    "quantity": "1",
+                    "price_per_unit": "100",
+                    "shock_percent": "-10",
+                },
+                {
+                    "symbol": "LOSER-B",
+                    "quantity": "1",
+                    "price_per_unit": "100",
+                    "shock_percent": "-30",
+                },
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    positions = response.json()["positions"]
+    contributions = sum(
+        (Decimal(str(item["loss_contribution_percent"])) for item in positions),
+        Decimal("0"),
+    )
+
+    assert contributions == Decimal("100")
+    assert Decimal(str(positions[0]["loss_contribution_percent"])) == Decimal("25")
+    assert Decimal(str(positions[1]["loss_contribution_percent"])) == Decimal("75")
+
+
+def test_loss_attribution_is_zero_when_no_positions_lose_value():
+    response = client.post(
+        "/api/v1/scenarios/stress",
+        json={
+            "positions": [
+                {
+                    "symbol": "WINNER",
+                    "quantity": "2",
+                    "price_per_unit": "50",
+                    "shock_percent": "10",
+                },
+                {
+                    "symbol": "UNCHANGED",
+                    "quantity": "1",
+                    "price_per_unit": "100",
+                    "shock_percent": "0",
+                },
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert Decimal(str(data["gross_losses"])) == Decimal("0")
+    assert Decimal(str(data["total_gains"])) == Decimal("10")
+    assert all(
+        Decimal(str(item["loss_contribution_percent"])) == Decimal("0")
+        for item in data["positions"]
+    )
