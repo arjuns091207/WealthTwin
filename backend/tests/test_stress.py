@@ -91,3 +91,83 @@ def test_stress_rejects_nonfinite_input():
     )
 
     assert response.status_code == 422
+
+
+def test_full_loss_shock_reduces_position_value_to_zero():
+    response = client.post(
+        "/api/v1/scenarios/stress",
+        json={
+            "positions": [
+                {
+                    "symbol": "ASSET-A",
+                    "quantity": "10",
+                    "price_per_unit": "25",
+                    "shock_percent": "-100",
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert Decimal(str(data["total_before"])) == Decimal("250")
+    assert Decimal(str(data["total_after"])) == Decimal("0")
+    assert Decimal(str(data["total_change"])) == Decimal("-250")
+
+
+def test_mixed_shocks_reconcile_to_portfolio_change():
+    response = client.post(
+        "/api/v1/scenarios/stress",
+        json={
+            "positions": [
+                {
+                    "symbol": "ASSET-A",
+                    "quantity": "10",
+                    "price_per_unit": "100",
+                    "shock_percent": "-20",
+                },
+                {
+                    "symbol": "ASSET-B",
+                    "quantity": "5",
+                    "price_per_unit": "200",
+                    "shock_percent": "10",
+                },
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    position_changes = sum(
+        (Decimal(str(position["change"])) for position in data["positions"]),
+        Decimal("0"),
+    )
+
+    assert position_changes == Decimal(str(data["total_change"]))
+    assert Decimal(str(data["total_before"])) == Decimal("2000")
+    assert Decimal(str(data["total_after"])) == Decimal("1900")
+    assert position_changes == Decimal("-100")
+
+
+def test_zero_shock_preserves_portfolio_value():
+    response = client.post(
+        "/api/v1/scenarios/stress",
+        json={
+            "positions": [
+                {
+                    "symbol": "ASSET-A",
+                    "quantity": "3",
+                    "price_per_unit": "125.50",
+                    "shock_percent": "0",
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert Decimal(str(data["total_before"])) == Decimal("376.50")
+    assert Decimal(str(data["total_after"])) == Decimal("376.50")
+    assert Decimal(str(data["total_change"])) == Decimal("0")
+
