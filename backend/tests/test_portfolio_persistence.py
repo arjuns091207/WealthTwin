@@ -383,3 +383,101 @@ def test_update_unknown_portfolio_returns_404(client: TestClient):
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Portfolio not found"
+
+def test_add_position_to_portfolio(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "Growth portfolio",
+            "positions": [
+                {
+                    "symbol": "AAPL",
+                    "quantity": "2",
+                    "price_per_unit": "100",
+                }
+            ],
+        },
+    )
+    assert created.status_code == 201
+    portfolio_id = created.json()["id"]
+
+    response = client.post(
+        f"/api/v1/portfolio/{portfolio_id}/positions",
+        json={
+            "symbol": "MSFT",
+            "quantity": "3",
+            "price_per_unit": "200",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["id"] == portfolio_id
+    assert {item["symbol"] for item in data["positions"]} == {"AAPL", "MSFT"}
+    assert len(data["positions"]) == 2
+
+
+def test_add_duplicate_position_returns_409(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "Duplicate test",
+            "positions": [
+                {
+                    "symbol": "AAPL",
+                    "quantity": "1",
+                    "price_per_unit": "100",
+                }
+            ],
+        },
+    )
+    assert created.status_code == 201
+    portfolio_id = created.json()["id"]
+
+    response = client.post(
+        f"/api/v1/portfolio/{portfolio_id}/positions",
+        json={
+            "symbol": "AAPL",
+            "quantity": "2",
+            "price_per_unit": "150",
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Portfolio already contains this symbol"
+    saved = client.get(f"/api/v1/portfolio/{portfolio_id}").json()
+    assert len(saved["positions"]) == 1
+
+
+def test_add_position_to_unknown_portfolio_returns_404(client: TestClient):
+    response = client.post(
+        "/api/v1/portfolio/999999/positions",
+        json={
+            "symbol": "AAPL",
+            "quantity": "1",
+            "price_per_unit": "100",
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Portfolio not found"
+
+
+def test_add_position_rejects_invalid_financial_values(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={"name": "Validation test", "positions": []},
+    )
+    assert created.status_code == 201
+    portfolio_id = created.json()["id"]
+
+    response = client.post(
+        f"/api/v1/portfolio/{portfolio_id}/positions",
+        json={
+            "symbol": "AAPL",
+            "quantity": "0",
+            "price_per_unit": "100",
+        },
+    )
+
+    assert response.status_code == 422

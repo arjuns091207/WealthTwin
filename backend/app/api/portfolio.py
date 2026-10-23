@@ -166,6 +166,50 @@ def get_portfolio(
     return portfolio
 
 
+@router.post(
+    "/{portfolio_id}/positions",
+    response_model=PortfolioRead,
+    status_code=status.HTTP_200_OK,
+)
+def add_portfolio_position(
+    portfolio_id: int,
+    request: Position,
+    db: Session = Depends(get_db),
+):
+    """Add a holding to an existing portfolio."""
+    portfolio = db.get(Portfolio, portfolio_id)
+
+    if portfolio is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Portfolio not found",
+        )
+
+    position = PortfolioPosition(
+        portfolio_id=portfolio_id,
+        symbol=request.symbol,
+        quantity=request.quantity,
+        price_per_unit=request.price_per_unit,
+    )
+    db.add(position)
+
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Portfolio already contains this symbol",
+        ) from exc
+
+    statement = (
+        select(Portfolio)
+        .options(selectinload(Portfolio.positions))
+        .where(Portfolio.id == portfolio_id)
+    )
+    return db.scalars(statement).first()
+
+
 @router.get("/{portfolio_id}/valuation")
 def value_saved_portfolio(
     portfolio_id: int,
