@@ -332,6 +332,77 @@ def get_portfolio_allocation(
     }
 
 
+
+@router.get("/{portfolio_id}/risk")
+def get_portfolio_risk(
+    portfolio_id: int,
+    db: Session = Depends(get_db),
+):
+    """Return portfolio concentration metrics based on position market values."""
+    portfolio = db.scalars(
+        select(Portfolio)
+        .options(selectinload(Portfolio.positions))
+        .where(Portfolio.id == portfolio_id)
+    ).first()
+
+    if portfolio is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Portfolio not found",
+        )
+
+    values = [
+        {
+            "position_id": position.id,
+            "symbol": position.symbol,
+            "market_value": position.quantity * position.price_per_unit,
+        }
+        for position in portfolio.positions
+    ]
+
+    values.sort(key=lambda item: item["market_value"], reverse=True)
+
+    total_market_value = sum(
+        (item["market_value"] for item in values),
+        Decimal("0"),
+    )
+
+    largest_position = None
+    largest_allocation_pct = Decimal("0")
+    top_three_allocation_pct = Decimal("0")
+
+    if total_market_value > 0:
+        top_three_value = sum(
+            (item["market_value"] for item in values[:3]),
+            Decimal("0"),
+        )
+        top_three_allocation_pct = (
+            top_three_value / total_market_value * Decimal("100")
+        )
+
+        if values:
+            largest = values[0]
+            largest_allocation_pct = (
+                largest["market_value"]
+                / total_market_value
+                * Decimal("100")
+            )
+            largest_position = {
+                **largest,
+                "allocation_pct": largest_allocation_pct,
+            }
+
+    return {
+        "portfolio_id": portfolio.id,
+        "portfolio_name": portfolio.name,
+        "position_count": len(values),
+        "total_market_value": total_market_value,
+        "largest_position": largest_position,
+        "largest_allocation_pct": largest_allocation_pct,
+        "top_three_allocation_pct": top_three_allocation_pct,
+    }
+
+
 @router.get("/{portfolio_id}/summary")
 def get_portfolio_summary(
     portfolio_id: int,

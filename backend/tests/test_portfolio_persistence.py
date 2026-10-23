@@ -671,3 +671,59 @@ def test_portfolio_summary_returns_404_for_unknown_portfolio(
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Portfolio not found"
+
+def test_portfolio_risk_reports_concentration(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "Risk test",
+            "positions": [
+                {"symbol": "AAPL", "quantity": "6", "price_per_unit": "100"},
+                {"symbol": "MSFT", "quantity": "3", "price_per_unit": "100"},
+                {"symbol": "NVDA", "quantity": "1", "price_per_unit": "100"},
+                {"symbol": "GOOG", "quantity": "1", "price_per_unit": "100"},
+            ],
+        },
+    )
+    assert created.status_code == 201
+
+    response = client.get(
+        f"/api/v1/portfolio/{created.json()['id']}/risk"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_market_value"] == 1100
+    assert data["position_count"] == 4
+    assert data["largest_position"]["symbol"] == "AAPL"
+    assert data["largest_allocation_pct"] == 600 / 11
+    assert data["top_three_allocation_pct"] == 1000 / 11
+
+
+def test_portfolio_risk_handles_empty_portfolio(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={"name": "Empty risk", "positions": []},
+    )
+    assert created.status_code == 201
+
+    response = client.get(
+        f"/api/v1/portfolio/{created.json()['id']}/risk"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["position_count"] == 0
+    assert data["total_market_value"] == 0
+    assert data["largest_position"] is None
+    assert data["largest_allocation_pct"] == 0
+    assert data["top_three_allocation_pct"] == 0
+
+
+def test_portfolio_risk_returns_404_for_unknown_portfolio(
+    client: TestClient,
+):
+    response = client.get("/api/v1/portfolio/999999/risk")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Portfolio not found"
