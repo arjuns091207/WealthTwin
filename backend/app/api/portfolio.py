@@ -333,6 +333,56 @@ def get_portfolio_allocation(
 
 
 
+
+@router.get("/{portfolio_id}/diversification")
+def get_portfolio_diversification(
+    portfolio_id: int,
+    db: Session = Depends(get_db),
+):
+    """Calculate weight-based portfolio concentration and diversification."""
+    portfolio = db.scalars(
+        select(Portfolio)
+        .options(selectinload(Portfolio.positions))
+        .where(Portfolio.id == portfolio_id)
+    ).first()
+
+    if portfolio is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Portfolio not found",
+        )
+
+    values = [
+        position.quantity * position.price_per_unit
+        for position in portfolio.positions
+    ]
+    total_market_value = sum(values, Decimal("0"))
+
+    hhi = Decimal("0")
+    effective_number_of_positions = Decimal("0")
+
+    if total_market_value > 0:
+        weights = [
+            value / total_market_value
+            for value in values
+        ]
+        hhi = sum(
+            (weight * weight for weight in weights),
+            Decimal("0"),
+        )
+        if hhi > 0:
+            effective_number_of_positions = Decimal("1") / hhi
+
+    return {
+        "portfolio_id": portfolio.id,
+        "portfolio_name": portfolio.name,
+        "position_count": len(values),
+        "total_market_value": total_market_value,
+        "herfindahl_hirschman_index": hhi,
+        "effective_number_of_positions": effective_number_of_positions,
+    }
+
+
 @router.get("/{portfolio_id}/risk")
 def get_portfolio_risk(
     portfolio_id: int,
