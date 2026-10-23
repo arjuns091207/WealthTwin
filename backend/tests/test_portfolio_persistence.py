@@ -619,3 +619,55 @@ def test_portfolio_allocation_returns_404_for_unknown_portfolio(
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Portfolio not found"
+
+def test_portfolio_summary_returns_valuation_metrics(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "Summary test",
+            "positions": [
+                {"symbol": "AAPL", "quantity": "2", "price_per_unit": "100"},
+                {"symbol": "MSFT", "quantity": "3", "price_per_unit": "200"},
+            ],
+        },
+    )
+    assert created.status_code == 201
+    portfolio_id = created.json()["id"]
+
+    response = client.get(f"/api/v1/portfolio/{portfolio_id}/summary")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["portfolio_name"] == "Summary test"
+    assert data["position_count"] == 2
+    assert data["total_market_value"] == 800
+    assert data["largest_position"]["symbol"] == "MSFT"
+    assert data["largest_position"]["market_value"] == 600
+    assert data["largest_position"]["allocation_pct"] == 75
+
+
+def test_portfolio_summary_handles_empty_portfolio(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={"name": "Empty summary", "positions": []},
+    )
+    assert created.status_code == 201
+
+    response = client.get(
+        f"/api/v1/portfolio/{created.json()['id']}/summary"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["position_count"] == 0
+    assert data["total_market_value"] == 0
+    assert data["largest_position"] is None
+
+
+def test_portfolio_summary_returns_404_for_unknown_portfolio(
+    client: TestClient,
+):
+    response = client.get("/api/v1/portfolio/999999/summary")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Portfolio not found"

@@ -332,6 +332,59 @@ def get_portfolio_allocation(
     }
 
 
+@router.get("/{portfolio_id}/summary")
+def get_portfolio_summary(
+    portfolio_id: int,
+    db: Session = Depends(get_db),
+):
+    """Return concise valuation and concentration metrics."""
+    portfolio = db.scalars(
+        select(Portfolio)
+        .options(selectinload(Portfolio.positions))
+        .where(Portfolio.id == portfolio_id)
+    ).first()
+
+    if portfolio is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Portfolio not found",
+        )
+
+    values = [
+        {
+            "position_id": position.id,
+            "symbol": position.symbol,
+            "market_value": position.quantity * position.price_per_unit,
+        }
+        for position in portfolio.positions
+    ]
+
+    total_market_value = sum(
+        (item["market_value"] for item in values),
+        Decimal("0"),
+    )
+
+    largest_position = None
+    if values:
+        largest = max(values, key=lambda item: item["market_value"])
+        largest_position = {
+            **largest,
+            "allocation_pct": (
+                largest["market_value"] / total_market_value * Decimal("100")
+                if total_market_value > 0
+                else Decimal("0")
+            ),
+        }
+
+    return {
+        "portfolio_id": portfolio.id,
+        "portfolio_name": portfolio.name,
+        "position_count": len(values),
+        "total_market_value": total_market_value,
+        "largest_position": largest_position,
+    }
+
+
 @router.delete("/{portfolio_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_portfolio(
     portfolio_id: int,
