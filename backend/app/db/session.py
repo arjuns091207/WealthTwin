@@ -3,6 +3,8 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 
+from collections.abc import Generator
+from sqlalchemy.orm import Session
 
 engine = create_engine(
     settings.database_url,
@@ -23,3 +25,12 @@ def check_database_connection() -> bool:
         return True
     except Exception:
         return False
+
+
+def get_db() -> Generator[Session, None, None]:
+    """Provide a database session and always close it."""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()

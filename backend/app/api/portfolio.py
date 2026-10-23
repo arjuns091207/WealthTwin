@@ -1,7 +1,15 @@
-﻿from decimal import Decimal
+from decimal import Decimal
 
-from fastapi import APIRouter
-from pydantic import BaseModel, Field, model_validator
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, selectinload
+
+from app.db.models import Portfolio, PortfolioPosition
+from app.db.session import get_db
+
+from datetime import datetime
 
 
 router = APIRouter(prefix="/api/v1/portfolio", tags=["Portfolio"])
@@ -22,6 +30,86 @@ class Position(BaseModel):
 
 class PortfolioValuationRequest(BaseModel):
     positions: list[Position] = Field(min_length=1, max_length=500)
+
+
+class PortfolioCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    positions: list[Position] = Field(default_factory=list, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_name(self):
+        self.name = self.name.strip()
+        if not self.name:
+            raise ValueError("Portfolio name must not be blank")
+        return self
+
+
+class PortfolioPositionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    symbol: str
+    quantity: Decimal
+    price_per_unit: Decimal
+
+
+class PortfolioRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    created_at: datetime
+    positions: list[PortfolioPositionRead]
+
+
+@router.post("", response_model=PortfolioRead, status_code=status.HTTP_201_CREATED)
+def create_portfolio(
+    request: PortfolioCreate,
+    db: Session = Depends(get_db),
+):
+    portfolio = Portfolio(name=request.name)
+    portfolio.positions = [
+        PortfolioPosition(
+            symbol=position.symbol,
+            quantity=position.quantity,
+            price_per_unit=position.price_per_unit,
+        )
+        for position in request.positions
+    ]
+
+    db.add(portfolio)
+    try:
+        db.commit()
+        db.refresh(portfolio)
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Portfolio contains duplicate symbols",
+        ) from exc
+
+    return portfolio
+
+
+@router.get("/{portfolio_id}", response_model=PortfolioRead)
+def get_portfolio(
+    portfolio_id: int,
+    db: Session = Depends(get_db),
+):
+    statement = (
+        select(Portfolio)
+        .options(selectinload(Portfolio.positions))
+        .where(Portfolio.id == portfolio_id)
+    )
+    portfolio = db.scalars(statement).first()
+
+    if portfolio is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Portfolio not found",
+        )
+
+    return portfolio
 
 
 @router.post("/valuation")
