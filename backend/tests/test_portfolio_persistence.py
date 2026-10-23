@@ -783,3 +783,63 @@ def test_portfolio_diversification_returns_404_for_unknown_portfolio(
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Portfolio not found"
+
+def test_portfolio_analytics_combines_metrics(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "Analytics overview",
+            "positions": [
+                {"symbol": "AAA", "quantity": "1", "price_per_unit": "100"},
+                {"symbol": "BBB", "quantity": "1", "price_per_unit": "100"},
+                {"symbol": "CCC", "quantity": "1", "price_per_unit": "100"},
+                {"symbol": "DDD", "quantity": "1", "price_per_unit": "100"},
+            ],
+        },
+    )
+    assert created.status_code == 201
+
+    response = client.get(
+        f"/api/v1/portfolio/{created.json()['id']}/analytics"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["portfolio_name"] == "Analytics overview"
+    assert data["position_count"] == 4
+    assert data["total_market_value"] == 400
+    assert data["largest_allocation_pct"] == 25
+    assert data["top_three_allocation_pct"] == 75
+    assert data["herfindahl_hirschman_index"] == 0.25
+    assert data["effective_number_of_positions"] == 4
+
+
+def test_portfolio_analytics_handles_empty_portfolio(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={"name": "Empty analytics", "positions": []},
+    )
+    assert created.status_code == 201
+
+    response = client.get(
+        f"/api/v1/portfolio/{created.json()['id']}/analytics"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["position_count"] == 0
+    assert data["total_market_value"] == 0
+    assert data["largest_position"] is None
+    assert data["largest_allocation_pct"] == 0
+    assert data["top_three_allocation_pct"] == 0
+    assert data["herfindahl_hirschman_index"] == 0
+    assert data["effective_number_of_positions"] == 0
+
+
+def test_portfolio_analytics_returns_404_for_unknown_portfolio(
+    client: TestClient,
+):
+    response = client.get("/api/v1/portfolio/999999/analytics")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Portfolio not found"

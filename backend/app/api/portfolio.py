@@ -334,6 +334,93 @@ def get_portfolio_allocation(
 
 
 
+
+@router.get("/{portfolio_id}/analytics")
+def get_portfolio_analytics(
+    portfolio_id: int,
+    db: Session = Depends(get_db),
+):
+    """Return combined valuation, concentration, and diversification metrics."""
+    portfolio = db.scalars(
+        select(Portfolio)
+        .options(selectinload(Portfolio.positions))
+        .where(Portfolio.id == portfolio_id)
+    ).first()
+
+    if portfolio is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Portfolio not found",
+        )
+
+    positions = [
+        {
+            "position_id": position.id,
+            "symbol": position.symbol,
+            "market_value": position.quantity * position.price_per_unit,
+        }
+        for position in portfolio.positions
+    ]
+
+    positions.sort(key=lambda item: item["market_value"], reverse=True)
+
+    total_market_value = sum(
+        (item["market_value"] for item in positions),
+        Decimal("0"),
+    )
+
+    weights = []
+    if total_market_value > 0:
+        weights = [
+            item["market_value"] / total_market_value
+            for item in positions
+        ]
+
+    hhi = sum(
+        (weight * weight for weight in weights),
+        Decimal("0"),
+    )
+    effective_positions = Decimal("1") / hhi if hhi > 0 else Decimal("0")
+
+    largest_position = None
+    if positions:
+        largest = positions[0]
+        largest_position = {
+            **largest,
+            "allocation_pct": (
+                largest["market_value"] / total_market_value * Decimal("100")
+                if total_market_value > 0
+                else Decimal("0")
+            ),
+        }
+
+    top_three_value = sum(
+        (item["market_value"] for item in positions[:3]),
+        Decimal("0"),
+    )
+    top_three_allocation_pct = (
+        top_three_value / total_market_value * Decimal("100")
+        if total_market_value > 0
+        else Decimal("0")
+    )
+
+    return {
+        "portfolio_id": portfolio.id,
+        "portfolio_name": portfolio.name,
+        "position_count": len(positions),
+        "total_market_value": total_market_value,
+        "largest_position": largest_position,
+        "largest_allocation_pct": (
+            largest_position["allocation_pct"]
+            if largest_position is not None
+            else Decimal("0")
+        ),
+        "top_three_allocation_pct": top_three_allocation_pct,
+        "herfindahl_hirschman_index": hhi,
+        "effective_number_of_positions": effective_positions,
+    }
+
+
 @router.get("/{portfolio_id}/diversification")
 def get_portfolio_diversification(
     portfolio_id: int,
