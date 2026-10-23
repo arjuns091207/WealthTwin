@@ -333,6 +333,77 @@ def get_portfolio_allocation(
 
 
 
+@router.get("/{portfolio_id}/allocation-bands")
+def get_portfolio_allocation_bands(
+    portfolio_id: int,
+    dominant_threshold_pct: Decimal = Query(default=Decimal("20"), gt=0, le=100),
+    medium_threshold_pct: Decimal = Query(default=Decimal("5"), ge=0, le=100),
+    db: Session = Depends(get_db),
+):
+    """Classify portfolio holdings by their percentage of total market value."""
+    if medium_threshold_pct >= dominant_threshold_pct:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="medium_threshold_pct must be less than dominant_threshold_pct",
+        )
+
+    portfolio = db.scalars(
+        select(Portfolio)
+        .options(selectinload(Portfolio.positions))
+        .where(Portfolio.id == portfolio_id)
+    ).first()
+
+    if portfolio is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Portfolio not found",
+        )
+
+    positions = [
+        {
+            "position_id": position.id,
+            "symbol": position.symbol,
+            "market_value": position.quantity * position.price_per_unit,
+        }
+        for position in portfolio.positions
+    ]
+
+    total_market_value = sum(
+        (position["market_value"] for position in positions),
+        Decimal("0"),
+    )
+
+    bands = {"dominant": [], "medium": [], "small": []}
+
+    for position in positions:
+        allocation_pct = (
+            position["market_value"] / total_market_value * Decimal("100")
+            if total_market_value > 0
+            else Decimal("0")
+        )
+        position["allocation_pct"] = allocation_pct
+
+        if allocation_pct >= dominant_threshold_pct:
+            band = "dominant"
+        elif allocation_pct >= medium_threshold_pct:
+            band = "medium"
+        else:
+            band = "small"
+
+        position["band"] = band
+        bands[band].append(position)
+
+    return {
+        "portfolio_id": portfolio.id,
+        "portfolio_name": portfolio.name,
+        "total_market_value": total_market_value,
+        "thresholds": {
+            "dominant_threshold_pct": dominant_threshold_pct,
+            "medium_threshold_pct": medium_threshold_pct,
+        },
+        "bands": bands,
+    }
+
 
 
 

@@ -915,3 +915,88 @@ def test_portfolio_comparison_rejects_same_portfolio(client: TestClient):
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Choose two different portfolios to compare"
+
+
+
+def test_portfolio_allocation_bands_classifies_positions(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "Allocation bands",
+            "positions": [
+                {"symbol": "A", "quantity": "6", "price_per_unit": "100"},
+                {"symbol": "B", "quantity": "2", "price_per_unit": "100"},
+                {"symbol": "C", "quantity": "1", "price_per_unit": "100"},
+                {"symbol": "D", "quantity": "1", "price_per_unit": "100"},
+            ],
+        },
+    )
+    assert created.status_code == 201
+
+    response = client.get(
+        f"/api/v1/portfolio/{created.json()['id']}/allocation-bands"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert {p["symbol"] for p in data["bands"]["dominant"]} == {"A", "B"}
+    assert {p["symbol"] for p in data["bands"]["medium"]} == {"C", "D"}
+    assert data["bands"]["small"] == []
+
+
+def test_portfolio_allocation_bands_supports_custom_thresholds(
+    client: TestClient,
+):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "Custom thresholds",
+            "positions": [
+                {"symbol": "A", "quantity": "7", "price_per_unit": "100"},
+                {"symbol": "B", "quantity": "3", "price_per_unit": "100"},
+            ],
+        },
+    )
+    assert created.status_code == 201
+
+    response = client.get(
+        f"/api/v1/portfolio/{created.json()['id']}/allocation-bands",
+        params={
+            "dominant_threshold_pct": 60,
+            "medium_threshold_pct": 20,
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert [p["symbol"] for p in data["bands"]["dominant"]] == ["A"]
+    assert [p["symbol"] for p in data["bands"]["medium"]] == ["B"]
+
+
+def test_portfolio_allocation_bands_rejects_invalid_thresholds(
+    client: TestClient,
+):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={"name": "Invalid thresholds", "positions": []},
+    )
+    assert created.status_code == 201
+
+    response = client.get(
+        f"/api/v1/portfolio/{created.json()['id']}/allocation-bands",
+        params={
+            "dominant_threshold_pct": 10,
+            "medium_threshold_pct": 10,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_portfolio_allocation_bands_returns_404_for_unknown_portfolio(
+    client: TestClient,
+):
+    response = client.get("/api/v1/portfolio/999999/allocation-bands")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Portfolio not found"
