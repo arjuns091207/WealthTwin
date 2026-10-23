@@ -328,3 +328,58 @@ def test_value_unknown_portfolio_returns_404(client: TestClient):
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Portfolio not found"
+
+def test_update_portfolio_renames_and_preserves_positions(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "Old name",
+            "positions": [
+                {
+                    "symbol": "AAPL",
+                    "quantity": "2",
+                    "price_per_unit": "150",
+                }
+            ],
+        },
+    )
+    assert created.status_code == 201
+    portfolio_id = created.json()["id"]
+
+    response = client.patch(
+        f"/api/v1/portfolio/{portfolio_id}",
+        json={"name": "  New name  "},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["name"] == "New name"
+    assert len(data["positions"]) == 1
+    assert data["positions"][0]["symbol"] == "AAPL"
+    assert data["positions"][0]["quantity"] == "2.00000000"
+
+
+@pytest.mark.parametrize("name", ["", "   "])
+def test_update_portfolio_rejects_blank_name(client: TestClient, name: str):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={"name": "Existing name", "positions": []},
+    )
+    assert created.status_code == 201
+
+    response = client.patch(
+        f"/api/v1/portfolio/{created.json()['id']}",
+        json={"name": name},
+    )
+
+    assert response.status_code == 422
+
+
+def test_update_unknown_portfolio_returns_404(client: TestClient):
+    response = client.patch(
+        "/api/v1/portfolio/999999",
+        json={"name": "New name"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Portfolio not found"

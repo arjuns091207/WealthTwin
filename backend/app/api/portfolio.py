@@ -44,6 +44,17 @@ class PortfolioCreate(BaseModel):
         return self
 
 
+class PortfolioUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_name(self):
+        self.name = self.name.strip()
+        if not self.name:
+            raise ValueError("Portfolio name must not be blank")
+        return self
+
+
 class PortfolioPositionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -106,6 +117,32 @@ def list_portfolios(
         .limit(limit)
     )
     return list(db.scalars(statement).all())
+
+
+@router.patch("/{portfolio_id}", response_model=PortfolioRead)
+def update_portfolio(
+    portfolio_id: int,
+    request: PortfolioUpdate,
+    db: Session = Depends(get_db),
+):
+    """Rename a saved portfolio without changing its positions."""
+    portfolio = db.scalars(
+        select(Portfolio)
+        .options(selectinload(Portfolio.positions))
+        .where(Portfolio.id == portfolio_id)
+    ).first()
+
+    if portfolio is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Portfolio not found",
+        )
+
+    portfolio.name = request.name
+    db.commit()
+    db.refresh(portfolio)
+
+    return portfolio
 
 
 @router.get("/{portfolio_id}", response_model=PortfolioRead)
