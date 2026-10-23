@@ -481,3 +481,84 @@ def test_add_position_rejects_invalid_financial_values(client: TestClient):
     )
 
     assert response.status_code == 422
+
+def test_remove_position_from_portfolio(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "Holdings removal test",
+            "positions": [
+                {"symbol": "AAPL", "quantity": "2", "price_per_unit": "100"},
+                {"symbol": "MSFT", "quantity": "3", "price_per_unit": "200"},
+            ],
+        },
+    )
+    assert created.status_code == 201
+    data = created.json()
+    portfolio_id = data["id"]
+    aapl = next(p for p in data["positions"] if p["symbol"] == "AAPL")
+
+    response = client.delete(
+        f"/api/v1/portfolio/{portfolio_id}/positions/{aapl['id']}"
+    )
+
+    assert response.status_code == 200
+    updated = response.json()
+    assert updated["id"] == portfolio_id
+    assert [p["symbol"] for p in updated["positions"]] == ["MSFT"]
+    assert client.get(f"/api/v1/portfolio/{portfolio_id}").status_code == 200
+
+
+def test_remove_position_from_unknown_portfolio_returns_404(
+    client: TestClient,
+):
+    response = client.delete("/api/v1/portfolio/999999/positions/1")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Portfolio not found"
+
+
+def test_remove_unknown_position_returns_404(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={"name": "Position not found test", "positions": []},
+    )
+    assert created.status_code == 201
+    portfolio_id = created.json()["id"]
+
+    response = client.delete(
+        f"/api/v1/portfolio/{portfolio_id}/positions/999999"
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Position not found in this portfolio"
+
+
+def test_cannot_remove_position_from_another_portfolio(client: TestClient):
+    first = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "First portfolio",
+            "positions": [
+                {"symbol": "AAPL", "quantity": "1", "price_per_unit": "100"}
+            ],
+        },
+    )
+    second = client.post(
+        "/api/v1/portfolio",
+        json={"name": "Second portfolio", "positions": []},
+    )
+    assert first.status_code == 201
+    assert second.status_code == 201
+
+    position_id = first.json()["positions"][0]["id"]
+    second_id = second.json()["id"]
+
+    response = client.delete(
+        f"/api/v1/portfolio/{second_id}/positions/{position_id}"
+    )
+
+    assert response.status_code == 404
+    assert client.get(
+        f"/api/v1/portfolio/{first.json()['id']}"
+    ).json()["positions"][0]["symbol"] == "AAPL"

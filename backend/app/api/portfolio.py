@@ -210,6 +210,40 @@ def add_portfolio_position(
     return db.scalars(statement).first()
 
 
+@router.delete("/{portfolio_id}/positions/{position_id}", response_model=PortfolioRead)
+def remove_portfolio_position(
+    portfolio_id: int,
+    position_id: int,
+    db: Session = Depends(get_db),
+):
+    """Remove one holding while keeping the portfolio."""
+    portfolio = db.get(Portfolio, portfolio_id)
+
+    if portfolio is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Portfolio not found",
+        )
+
+    position = db.get(PortfolioPosition, position_id)
+
+    if position is None or position.portfolio_id != portfolio_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Position not found in this portfolio",
+        )
+
+    db.delete(position)
+    db.commit()
+
+    statement = (
+        select(Portfolio)
+        .options(selectinload(Portfolio.positions))
+        .where(Portfolio.id == portfolio_id)
+    )
+    return db.scalars(statement).first()
+
+
 @router.get("/{portfolio_id}/valuation")
 def value_saved_portfolio(
     portfolio_id: int,
