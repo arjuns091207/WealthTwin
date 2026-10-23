@@ -134,3 +134,71 @@ def test_create_portfolio_rejects_duplicate_symbols(client: TestClient):
     )
 
     assert response.status_code == 409
+
+
+def test_list_portfolios_returns_saved_portfolios(client: TestClient):
+    first = client.post(
+        "/api/v1/portfolio",
+        json={"name": "First portfolio", "positions": []},
+    )
+    second = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "Second portfolio",
+            "positions": [
+                {
+                    "symbol": "AAPL",
+                    "quantity": "2",
+                    "price_per_unit": "100",
+                }
+            ],
+        },
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+
+    response = client.get("/api/v1/portfolio")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 2
+    assert {portfolio["name"] for portfolio in data} == {
+        "First portfolio",
+        "Second portfolio",
+    }
+    assert all("positions" in portfolio for portfolio in data)
+
+
+def test_list_portfolios_supports_pagination(client: TestClient):
+    for name in ["Portfolio A", "Portfolio B", "Portfolio C"]:
+        response = client.post(
+            "/api/v1/portfolio",
+            json={"name": name, "positions": []},
+        )
+        assert response.status_code == 201
+
+    first_page = client.get("/api/v1/portfolio?skip=0&limit=2")
+    second_page = client.get("/api/v1/portfolio?skip=2&limit=2")
+
+    assert first_page.status_code == 200
+    assert second_page.status_code == 200
+    assert len(first_page.json()) == 2
+    assert len(second_page.json()) == 1
+
+    first_ids = {portfolio["id"] for portfolio in first_page.json()}
+    second_ids = {portfolio["id"] for portfolio in second_page.json()}
+    assert first_ids.isdisjoint(second_ids)
+
+
+def test_list_portfolios_rejects_invalid_pagination(client: TestClient):
+    assert client.get("/api/v1/portfolio?skip=-1").status_code == 422
+    assert client.get("/api/v1/portfolio?limit=0").status_code == 422
+    assert client.get("/api/v1/portfolio?limit=101").status_code == 422
+
+
+def test_list_portfolios_returns_empty_list_when_no_data(client: TestClient):
+    response = client.get("/api/v1/portfolio")
+
+    assert response.status_code == 200
+    assert response.json() == []

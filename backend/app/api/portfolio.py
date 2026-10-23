@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -89,6 +89,23 @@ def create_portfolio(
         ) from exc
 
     return portfolio
+
+
+@router.get("", response_model=list[PortfolioRead])
+def list_portfolios(
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    """Return portfolios ordered by creation time, newest first."""
+    statement = (
+        select(Portfolio)
+        .options(selectinload(Portfolio.positions))
+        .order_by(Portfolio.created_at.desc(), Portfolio.id.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    return list(db.scalars(statement).all())
 
 
 @router.get("/{portfolio_id}", response_model=PortfolioRead)
