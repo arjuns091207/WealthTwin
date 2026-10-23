@@ -265,3 +265,66 @@ def test_delete_portfolio_with_positions(client: TestClient):
 
     assert response.status_code == 204
     assert client.get(f"/api/v1/portfolio/{portfolio_id}").status_code == 404
+
+
+def test_value_saved_portfolio_calculates_market_values(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "Valuation portfolio",
+            "positions": [
+                {
+                    "symbol": "AAPL",
+                    "quantity": "2",
+                    "price_per_unit": "150.25",
+                },
+                {
+                    "symbol": "BOND",
+                    "quantity": "3",
+                    "price_per_unit": "100",
+                },
+            ],
+        },
+    )
+    assert created.status_code == 201
+    portfolio_id = created.json()["id"]
+
+    response = client.get(
+        f"/api/v1/portfolio/{portfolio_id}/valuation"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["portfolio_id"] == portfolio_id
+    assert data["portfolio_name"] == "Valuation portfolio"
+    assert data["position_count"] == 2
+    values = {item["symbol"]: item["market_value"] for item in data["positions"]}
+    assert values["AAPL"] == 300.5
+    assert values["BOND"] == 300
+    assert data["total_market_value"] == 600.5
+
+
+def test_value_saved_portfolio_returns_zero_for_empty_portfolio(
+    client: TestClient,
+):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={"name": "Empty portfolio", "positions": []},
+    )
+    assert created.status_code == 201
+
+    response = client.get(
+        f"/api/v1/portfolio/{created.json()['id']}/valuation"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["position_count"] == 0
+    assert response.json()["positions"] == []
+    assert response.json()["total_market_value"] == 0
+
+
+def test_value_unknown_portfolio_returns_404(client: TestClient):
+    response = client.get("/api/v1/portfolio/999999/valuation")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Portfolio not found"
