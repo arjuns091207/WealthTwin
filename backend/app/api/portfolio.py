@@ -129,6 +129,24 @@ def get_portfolio(
     return portfolio
 
 
+@router.delete("/{portfolio_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_portfolio(
+    portfolio_id: int,
+    db: Session = Depends(get_db),
+):
+    """Delete a portfolio and its associated positions."""
+    portfolio = db.get(Portfolio, portfolio_id)
+
+    if portfolio is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Portfolio not found",
+        )
+
+    db.delete(portfolio)
+    db.commit()
+
+
 @router.post("/valuation")
 def calculate_portfolio_valuation(request: PortfolioValuationRequest):
     position_values = [

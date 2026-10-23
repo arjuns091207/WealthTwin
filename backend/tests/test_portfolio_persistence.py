@@ -202,3 +202,66 @@ def test_list_portfolios_returns_empty_list_when_no_data(client: TestClient):
 
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_delete_portfolio_removes_saved_data(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "Portfolio to delete",
+            "positions": [
+                {
+                    "symbol": "AAPL",
+                    "quantity": "2",
+                    "price_per_unit": "100",
+                }
+            ],
+        },
+    )
+    assert created.status_code == 201
+    portfolio_id = created.json()["id"]
+
+    deleted = client.delete(f"/api/v1/portfolio/{portfolio_id}")
+
+    assert deleted.status_code == 204
+    assert deleted.content == b""
+    assert client.get(f"/api/v1/portfolio/{portfolio_id}").status_code == 404
+    assert all(
+        item["id"] != portfolio_id
+        for item in client.get("/api/v1/portfolio").json()
+    )
+
+
+def test_delete_unknown_portfolio_returns_404(client: TestClient):
+    response = client.delete("/api/v1/portfolio/999999")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Portfolio not found"
+
+
+def test_delete_portfolio_with_positions(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "Portfolio with positions",
+            "positions": [
+                {
+                    "symbol": "AAPL",
+                    "quantity": "2",
+                    "price_per_unit": "100",
+                },
+                {
+                    "symbol": "MSFT",
+                    "quantity": "3",
+                    "price_per_unit": "200",
+                },
+            ],
+        },
+    )
+    assert created.status_code == 201
+    portfolio_id = created.json()["id"]
+
+    response = client.delete(f"/api/v1/portfolio/{portfolio_id}")
+
+    assert response.status_code == 204
+    assert client.get(f"/api/v1/portfolio/{portfolio_id}").status_code == 404
