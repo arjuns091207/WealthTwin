@@ -335,6 +335,80 @@ def get_portfolio_allocation(
 
 
 
+
+@router.get("/compare/{first_portfolio_id}/{second_portfolio_id}")
+def compare_portfolios(
+    first_portfolio_id: int,
+    second_portfolio_id: int,
+    db: Session = Depends(get_db),
+):
+    """Compare valuation and diversification metrics for two portfolios."""
+    if first_portfolio_id == second_portfolio_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Choose two different portfolios to compare",
+        )
+
+    portfolio_ids = [first_portfolio_id, second_portfolio_id]
+    portfolios = db.scalars(
+        select(Portfolio)
+        .options(selectinload(Portfolio.positions))
+        .where(Portfolio.id.in_(portfolio_ids))
+    ).all()
+
+    portfolio_by_id = {portfolio.id: portfolio for portfolio in portfolios}
+
+    missing_ids = [
+        portfolio_id
+        for portfolio_id in portfolio_ids
+        if portfolio_id not in portfolio_by_id
+    ]
+    if missing_ids:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Portfolio not found: {missing_ids[0]}",
+        )
+
+    def calculate_metrics(portfolio):
+        values = [
+            position.quantity * position.price_per_unit
+            for position in portfolio.positions
+        ]
+        total = sum(values, Decimal("0"))
+        hhi = Decimal("0")
+
+        if total > 0:
+            hhi = sum(
+                (
+                    (value / total) * (value / total)
+                    for value in values
+                ),
+                Decimal("0"),
+            )
+
+        return {
+            "portfolio_id": portfolio.id,
+            "portfolio_name": portfolio.name,
+            "position_count": len(values),
+            "total_market_value": total,
+            "herfindahl_hirschman_index": hhi,
+            "effective_number_of_positions": (
+                Decimal("1") / hhi if hhi > 0 else Decimal("0")
+            ),
+        }
+
+    first = calculate_metrics(portfolio_by_id[first_portfolio_id])
+    second = calculate_metrics(portfolio_by_id[second_portfolio_id])
+
+    return {
+        "first_portfolio": first,
+        "second_portfolio": second,
+        "market_value_difference": (
+            first["total_market_value"] - second["total_market_value"]
+        ),
+    }
+
+
 @router.get("/{portfolio_id}/analytics")
 def get_portfolio_analytics(
     portfolio_id: int,

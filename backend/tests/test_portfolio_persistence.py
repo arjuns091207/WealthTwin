@@ -843,3 +843,75 @@ def test_portfolio_analytics_returns_404_for_unknown_portfolio(
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Portfolio not found"
+
+def test_portfolio_comparison_returns_metric_differences(client: TestClient):
+    first = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "Comparison A",
+            "positions": [
+                {"symbol": "AAA", "quantity": "1", "price_per_unit": "100"},
+                {"symbol": "BBB", "quantity": "1", "price_per_unit": "100"},
+            ],
+        },
+    )
+    second = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "Comparison B",
+            "positions": [
+                {"symbol": "CCC", "quantity": "1", "price_per_unit": "300"},
+            ],
+        },
+    )
+    assert first.status_code == 201
+    assert second.status_code == 201
+
+    response = client.get(
+        f"/api/v1/portfolio/compare/{first.json()['id']}/{second.json()['id']}"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["first_portfolio"]["total_market_value"] == 200
+    assert data["first_portfolio"]["position_count"] == 2
+    assert data["first_portfolio"]["herfindahl_hirschman_index"] == 0.5
+    assert data["first_portfolio"]["effective_number_of_positions"] == 2
+    assert data["second_portfolio"]["total_market_value"] == 300
+    assert data["second_portfolio"]["position_count"] == 1
+    assert data["second_portfolio"]["herfindahl_hirschman_index"] == 1
+    assert data["second_portfolio"]["effective_number_of_positions"] == 1
+    assert data["market_value_difference"] == -100
+
+
+def test_portfolio_comparison_returns_404_if_either_is_missing(
+    client: TestClient,
+):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={"name": "Existing comparison portfolio", "positions": []},
+    )
+    assert created.status_code == 201
+
+    response = client.get(
+        f"/api/v1/portfolio/compare/{created.json()['id']}/999999"
+    )
+
+    assert response.status_code == 404
+    assert "Portfolio not found" in response.json()["detail"]
+
+
+def test_portfolio_comparison_rejects_same_portfolio(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={"name": "Same portfolio", "positions": []},
+    )
+    assert created.status_code == 201
+    portfolio_id = created.json()["id"]
+
+    response = client.get(
+        f"/api/v1/portfolio/compare/{portfolio_id}/{portfolio_id}"
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Choose two different portfolios to compare"
