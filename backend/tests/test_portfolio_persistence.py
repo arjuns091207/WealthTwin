@@ -1000,3 +1000,103 @@ def test_portfolio_allocation_bands_returns_404_for_unknown_portfolio(
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Portfolio not found"
+
+def test_portfolio_rebalance_calculates_buy_sell_and_hold(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "Rebalance test",
+            "positions": [
+                {"symbol": "A", "quantity": "8", "price_per_unit": "100"},
+                {"symbol": "B", "quantity": "2", "price_per_unit": "100"},
+            ],
+        },
+    )
+    assert created.status_code == 201
+
+    response = client.post(
+        f"/api/v1/portfolio/{created.json()['id']}/rebalance",
+        json={"target_allocations": {"A": "50", "B": "50"}},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_market_value"] == 1000.0
+    recommendations = {item["symbol"]: item for item in data["recommendations"]}
+    assert recommendations["A"]["action"] == "sell"
+    assert recommendations["A"]["trade_value"] == -300.0
+    assert recommendations["B"]["action"] == "buy"
+    assert recommendations["B"]["trade_value"] == 300.0
+
+
+def test_portfolio_rebalance_rejects_targets_not_summing_to_100(
+    client: TestClient,
+):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "Invalid targets",
+            "positions": [
+                {"symbol": "A", "quantity": "1", "price_per_unit": "100"},
+            ],
+        },
+    )
+    assert created.status_code == 201
+
+    response = client.post(
+        f"/api/v1/portfolio/{created.json()['id']}/rebalance",
+        json={"target_allocations": {"A": "80"}},
+    )
+
+    assert response.status_code == 422
+
+
+def test_portfolio_rebalance_rejects_unknown_symbols(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "Unknown target",
+            "positions": [
+                {"symbol": "A", "quantity": "1", "price_per_unit": "100"},
+            ],
+        },
+    )
+    assert created.status_code == 201
+
+    response = client.post(
+        f"/api/v1/portfolio/{created.json()['id']}/rebalance",
+        json={"target_allocations": {"UNKNOWN": "100"}},
+    )
+
+    assert response.status_code == 422
+
+
+def test_portfolio_rebalance_returns_404_for_unknown_portfolio(
+    client: TestClient,
+):
+    response = client.post(
+        "/api/v1/portfolio/999999/rebalance",
+        json={"target_allocations": {"A": "100"}},
+    )
+
+    assert response.status_code == 404
+
+
+def test_portfolio_rebalance_rejects_zero_market_value(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "Zero value",
+            "positions": [
+                {"symbol": "A", "quantity": "1", "price_per_unit": "0"},
+            ],
+        },
+    )
+    assert created.status_code == 201
+
+    response = client.post(
+        f"/api/v1/portfolio/{created.json()['id']}/rebalance",
+        json={"target_allocations": {"A": "100"}},
+    )
+
+    assert response.status_code == 422

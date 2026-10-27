@@ -27,9 +27,29 @@ class Position(BaseModel):
             raise ValueError("Financial inputs must be finite")
         return self
 
+class PortfolioRebalanceRequest(BaseModel):
+    target_allocations: dict[str, Decimal] = Field(min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_target_allocations(self):
+        if any(not value.is_finite() or value < 0 for value in self.target_allocations.values()):
+            raise ValueError("Target allocations must be finite and non-negative")
+
+        if any(not symbol.strip() for symbol in self.target_allocations):
+            raise ValueError("Symbols must not be blank")
+
+        if len({symbol.strip().upper() for symbol in self.target_allocations}) != len(self.target_allocations):
+            raise ValueError("Duplicate symbols are not allowed")
+
+        if sum(self.target_allocations.values(), Decimal("0")) != Decimal("100"):
+            raise ValueError("Target allocations must sum to exactly 100")
+
+        return self
 
 class PortfolioValuationRequest(BaseModel):
     positions: list[Position] = Field(min_length=1, max_length=500)
+
+
 
 
 class PortfolioCreate(BaseModel):
@@ -404,7 +424,98 @@ def get_portfolio_allocation_bands(
         "bands": bands,
     }
 
+@router.post("/{portfolio_id}/rebalance")
+def rebalance_portfolio(
+    portfolio_id: int,
+    request: PortfolioRebalanceRequest,
+    db: Session = Depends(get_db),
+):
+    """Calculate value-based trades needed to reach target allocations."""
+    portfolio = db.scalars(
+        select(Portfolio)
+        .options(selectinload(Portfolio.positions))
+        .where(Portfolio.id == portfolio_id)
+    ).first()
 
+    if portfolio is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Portfolio not found",
+        )
+
+    targets = {
+        symbol.strip().upper(): allocation
+        for symbol, allocation in request.target_allocations.items()
+    }
+
+    positions_by_symbol = {
+        position.symbol.upper(): position
+        for position in portfolio.positions
+    }
+
+    unknown_symbols = sorted(set(targets) - set(positions_by_symbol))
+    if unknown_symbols:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Target symbols not in portfolio: {', '.join(unknown_symbols)}",
+        )
+
+    if set(targets) != set(positions_by_symbol):
+        missing_symbols = sorted(set(positions_by_symbol) - set(targets))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Missing target allocations for: {', '.join(missing_symbols)}",
+        )
+
+    values = {
+        symbol: position.quantity * position.price_per_unit
+        for symbol, position in positions_by_symbol.items()
+    }
+    total_value = sum(values.values(), Decimal("0"))
+
+    if total_value <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Cannot rebalance a portfolio with zero market value",
+        )
+
+    recommendations = []
+    for symbol, position in positions_by_symbol.items():
+        current_value = values[symbol]
+        current_weight = current_value / total_value * Decimal("100")
+        target_weight = targets[symbol]
+        target_value = total_value * target_weight / Decimal("100")
+        trade_value = target_value - current_value
+
+        recommendations.append(
+            {
+                "symbol": symbol,
+                "current_market_value": current_value,
+                "current_allocation_pct": current_weight,
+                "target_allocation_pct": target_weight,
+                "target_market_value": target_value,
+                "trade_value": trade_value,
+                "action": (
+                    "buy" if trade_value > 0
+                    else "sell" if trade_value < 0
+                    else "hold"
+                ),
+            }
+        )
+
+    return {
+        "portfolio_id": portfolio.id,
+        "portfolio_name": portfolio.name,
+        "total_market_value": total_value,
+        "recommendations": sorted(
+            recommendations,
+            key=lambda item: item["symbol"],
+        ),
+        "note": (
+            "Value-based estimates only; excludes taxes, transaction costs, "
+            "market movements, and fractional-share restrictions."
+        ),
+    }
 
 
 @router.get("/compare/{first_portfolio_id}/{second_portfolio_id}")
