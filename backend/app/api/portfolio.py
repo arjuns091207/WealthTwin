@@ -901,6 +901,67 @@ def export_portfolio_csv(
     )
 
 
+@router.get("/{portfolio_id}/positions/search")
+def search_portfolio_positions(
+    portfolio_id: int,
+    symbol_prefix: str | None = Query(default=None, min_length=1, max_length=20),
+    min_market_value: Decimal | None = Query(default=None, ge=0),
+    max_market_value: Decimal | None = Query(default=None, ge=0),
+    db: Session = Depends(get_db),
+):
+    """Search current holdings by symbol prefix and market-value bounds."""
+    if (
+        min_market_value is not None
+        and max_market_value is not None
+        and min_market_value > max_market_value
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="min_market_value cannot exceed max_market_value",
+        )
+
+    portfolio = db.scalars(
+        select(Portfolio)
+        .options(selectinload(Portfolio.positions))
+        .where(Portfolio.id == portfolio_id)
+    ).first()
+
+    if portfolio is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Portfolio not found",
+        )
+
+    prefix = symbol_prefix.upper() if symbol_prefix is not None else None
+    results = []
+
+    for position in portfolio.positions:
+        market_value = position.quantity * position.price_per_unit
+
+        if prefix is not None and not position.symbol.upper().startswith(prefix):
+            continue
+        if min_market_value is not None and market_value < min_market_value:
+            continue
+        if max_market_value is not None and market_value > max_market_value:
+            continue
+
+        results.append({
+            "symbol": position.symbol,
+            "quantity": position.quantity,
+            "price_per_unit": position.price_per_unit,
+            "market_value": market_value,
+        })
+
+    results.sort(key=lambda item: item["symbol"].upper())
+
+    return {
+        "portfolio_id": portfolio.id,
+        "portfolio_name": portfolio.name,
+        "result_count": len(results),
+        "positions": results,
+    }
+
+
 @router.get("/{portfolio_id}/summary")
 def get_portfolio_summary(
     portfolio_id: int,

@@ -1215,3 +1215,83 @@ def test_portfolio_csv_export_returns_404_for_unknown_portfolio(
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Portfolio not found"
+
+
+
+def test_portfolio_position_search_filters_by_prefix_and_value(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "Position search",
+            "positions": [
+                {"symbol": "AAPL", "quantity": "2", "price_per_unit": "100"},
+                {"symbol": "AMZN", "quantity": "1", "price_per_unit": "300"},
+                {"symbol": "MSFT", "quantity": "4", "price_per_unit": "100"},
+            ],
+        },
+    )
+    assert created.status_code == 201
+    portfolio_id = created.json()["id"]
+
+    response = client.get(
+        f"/api/v1/portfolio/{portfolio_id}/positions/search",
+        params={
+            "symbol_prefix": "a",
+            "min_market_value": "200",
+            "max_market_value": "300",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["result_count"] == 2
+    assert [item["symbol"] for item in data["positions"]] == ["AAPL", "AMZN"]
+    assert [item["market_value"] for item in data["positions"]] == [200, 300]
+
+
+def test_portfolio_position_search_returns_empty_results(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "No matching positions",
+            "positions": [
+                {"symbol": "AAPL", "quantity": "1", "price_per_unit": "100"},
+            ],
+        },
+    )
+    assert created.status_code == 201
+
+    response = client.get(
+        f"/api/v1/portfolio/{created.json()['id']}/positions/search",
+        params={"symbol_prefix": "ZZZ"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["result_count"] == 0
+    assert response.json()["positions"] == []
+
+
+def test_portfolio_position_search_rejects_invalid_value_bounds(
+    client: TestClient,
+):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={"name": "Invalid search", "positions": []},
+    )
+    assert created.status_code == 201
+
+    response = client.get(
+        f"/api/v1/portfolio/{created.json()['id']}/positions/search",
+        params={"min_market_value": "500", "max_market_value": "100"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_portfolio_position_search_returns_404_for_unknown_portfolio(
+    client: TestClient,
+):
+    response = client.get("/api/v1/portfolio/999999/positions/search")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Portfolio not found"
