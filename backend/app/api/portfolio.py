@@ -1,4 +1,8 @@
 from decimal import Decimal
+import csv
+import io
+
+from fastapi.responses import StreamingResponse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -848,6 +852,53 @@ def get_portfolio_value_distribution(
         "median_position_value": median,
         "position_value_range": value_range,
     }
+
+
+@router.get("/{portfolio_id}/export")
+def export_portfolio_csv(
+    portfolio_id: int,
+    db: Session = Depends(get_db),
+):
+    """Export current portfolio holdings and valuations as CSV."""
+    portfolio = db.scalars(
+        select(Portfolio)
+        .options(selectinload(Portfolio.positions))
+        .where(Portfolio.id == portfolio_id)
+    ).first()
+
+    if portfolio is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Portfolio not found",
+        )
+
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(
+        ["symbol", "quantity", "price_per_unit", "market_value"]
+    )
+
+    for position in sorted(portfolio.positions, key=lambda item: item.symbol):
+        market_value = position.quantity * position.price_per_unit
+        writer.writerow(
+            [
+                position.symbol,
+                str(position.quantity),
+                str(position.price_per_unit),
+                str(market_value),
+            ]
+        )
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="portfolio_{portfolio.id}.csv"'
+            )
+        },
+    )
 
 
 @router.get("/{portfolio_id}/summary")

@@ -1,5 +1,6 @@
 ﻿
 from collections.abc import Generator
+import csv
 
 import pytest
 from fastapi.testclient import TestClient
@@ -1158,6 +1159,59 @@ def test_portfolio_distribution_returns_404_for_unknown_portfolio(
     client: TestClient,
 ):
     response = client.get("/api/v1/portfolio/999999/distribution")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Portfolio not found"
+
+
+
+def test_portfolio_csv_export_returns_sorted_holdings(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "CSV export",
+            "positions": [
+                {"symbol": "ZETA", "quantity": "2", "price_per_unit": "15.50"},
+                {"symbol": "ALPHA", "quantity": "3", "price_per_unit": "20"},
+            ],
+        },
+    )
+    assert created.status_code == 201
+
+    response = client.get(
+        f"/api/v1/portfolio/{created.json()['id']}/export"
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "attachment;" in response.headers["content-disposition"]
+
+    rows = list(csv.reader(response.text.splitlines()))
+    assert rows[0] == ["symbol", "quantity", "price_per_unit", "market_value"]
+    assert rows[1] == ["ALPHA", "3.00000000", "20.00000000", "60.0000000000000000"]
+    assert rows[2] == ["ZETA", "2.00000000", "15.50000000", "31.0000000000000000"]
+
+
+def test_portfolio_csv_export_handles_empty_portfolio(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={"name": "Empty CSV", "positions": []},
+    )
+    assert created.status_code == 201
+
+    response = client.get(
+        f"/api/v1/portfolio/{created.json()['id']}/export"
+    )
+
+    assert response.status_code == 200
+    rows = list(csv.reader(response.text.splitlines()))
+    assert rows == [["symbol", "quantity", "price_per_unit", "market_value"]]
+
+
+def test_portfolio_csv_export_returns_404_for_unknown_portfolio(
+    client: TestClient,
+):
+    response = client.get("/api/v1/portfolio/999999/export")
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Portfolio not found"
