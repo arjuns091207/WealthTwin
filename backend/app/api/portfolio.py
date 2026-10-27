@@ -796,6 +796,60 @@ def get_portfolio_risk(
     }
 
 
+@router.get("/{portfolio_id}/distribution")
+def get_portfolio_value_distribution(
+    portfolio_id: int,
+    db: Session = Depends(get_db),
+):
+    """Summarize the distribution of current position market values."""
+    portfolio = db.scalars(
+        select(Portfolio)
+        .options(selectinload(Portfolio.positions))
+        .where(Portfolio.id == portfolio_id)
+    ).first()
+
+    if portfolio is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Portfolio not found",
+        )
+
+    values = sorted(
+        (
+            position.quantity * position.price_per_unit
+            for position in portfolio.positions
+        )
+    )
+    count = len(values)
+    total = sum(values, Decimal("0"))
+
+    if count:
+        minimum = values[0]
+        maximum = values[-1]
+        mean = total / Decimal(count)
+        middle = count // 2
+        median = (
+            values[middle]
+            if count % 2
+            else (values[middle - 1] + values[middle]) / Decimal("2")
+        )
+        value_range = maximum - minimum
+    else:
+        minimum = maximum = mean = median = value_range = Decimal("0")
+
+    return {
+        "portfolio_id": portfolio.id,
+        "portfolio_name": portfolio.name,
+        "position_count": count,
+        "total_market_value": total,
+        "minimum_position_value": minimum,
+        "maximum_position_value": maximum,
+        "mean_position_value": mean,
+        "median_position_value": median,
+        "position_value_range": value_range,
+    }
+
+
 @router.get("/{portfolio_id}/summary")
 def get_portfolio_summary(
     portfolio_id: int,

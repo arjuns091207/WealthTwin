@@ -1100,3 +1100,64 @@ def test_portfolio_rebalance_rejects_zero_market_value(client: TestClient):
     )
 
     assert response.status_code == 422
+
+
+def test_portfolio_distribution_calculates_value_statistics(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "Distribution test",
+            "positions": [
+                {"symbol": "AAA", "quantity": "1", "price_per_unit": "100"},
+                {"symbol": "BBB", "quantity": "2", "price_per_unit": "100"},
+                {"symbol": "CCC", "quantity": "3", "price_per_unit": "100"},
+                {"symbol": "DDD", "quantity": "4", "price_per_unit": "100"},
+            ],
+        },
+    )
+    assert created.status_code == 201
+
+    response = client.get(
+        f"/api/v1/portfolio/{created.json()['id']}/distribution"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["position_count"] == 4
+    assert data["total_market_value"] == 1000
+    assert data["minimum_position_value"] == 100
+    assert data["maximum_position_value"] == 400
+    assert data["mean_position_value"] == 250
+    assert data["median_position_value"] == 250
+    assert data["position_value_range"] == 300
+
+
+def test_portfolio_distribution_handles_empty_portfolio(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={"name": "Empty distribution", "positions": []},
+    )
+    assert created.status_code == 201
+
+    response = client.get(
+        f"/api/v1/portfolio/{created.json()['id']}/distribution"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["position_count"] == 0
+    assert data["total_market_value"] == 0
+    assert data["minimum_position_value"] == 0
+    assert data["maximum_position_value"] == 0
+    assert data["mean_position_value"] == 0
+    assert data["median_position_value"] == 0
+    assert data["position_value_range"] == 0
+
+
+def test_portfolio_distribution_returns_404_for_unknown_portfolio(
+    client: TestClient,
+):
+    response = client.get("/api/v1/portfolio/999999/distribution")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Portfolio not found"
