@@ -907,6 +907,8 @@ def search_portfolio_positions(
     symbol_prefix: str | None = Query(default=None, min_length=1, max_length=20),
     min_market_value: Decimal | None = Query(default=None, ge=0),
     max_market_value: Decimal | None = Query(default=None, ge=0),
+    min_allocation_pct: Decimal | None = Query(default=None, ge=0, le=100),
+    max_allocation_pct: Decimal | None = Query(default=None, ge=0, le=100),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
@@ -922,6 +924,16 @@ def search_portfolio_positions(
             detail="min_market_value cannot exceed max_market_value",
         )
 
+    if (
+        min_allocation_pct is not None
+        and max_allocation_pct is not None
+        and min_allocation_pct > max_allocation_pct
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="min_allocation_pct cannot exceed max_allocation_pct",
+        )
+
     portfolio = db.scalars(
         select(Portfolio)
         .options(selectinload(Portfolio.positions))
@@ -934,11 +946,24 @@ def search_portfolio_positions(
             detail="Portfolio not found",
         )
 
+    total_market_value = sum(
+        (
+            position.quantity * position.price_per_unit
+            for position in portfolio.positions
+        ),
+        Decimal("0"),
+    )
+
     prefix = symbol_prefix.upper() if symbol_prefix is not None else None
     results = []
 
     for position in portfolio.positions:
         market_value = position.quantity * position.price_per_unit
+        allocation_pct = (
+            market_value / total_market_value * Decimal("100")
+            if total_market_value > 0
+            else Decimal("0")
+        )
 
         if prefix is not None and not position.symbol.upper().startswith(prefix):
             continue
@@ -946,12 +971,23 @@ def search_portfolio_positions(
             continue
         if max_market_value is not None and market_value > max_market_value:
             continue
+        if (
+            min_allocation_pct is not None
+            and allocation_pct < min_allocation_pct
+        ):
+            continue
+        if (
+            max_allocation_pct is not None
+            and allocation_pct > max_allocation_pct
+        ):
+            continue
 
         results.append({
             "symbol": position.symbol,
             "quantity": position.quantity,
             "price_per_unit": position.price_per_unit,
             "market_value": market_value,
+            "allocation_pct": allocation_pct,
         })
 
     results.sort(key=lambda item: item["symbol"].upper())

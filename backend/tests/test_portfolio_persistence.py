@@ -1,4 +1,4 @@
-﻿
+
 from collections.abc import Generator
 import csv
 
@@ -1348,3 +1348,48 @@ def test_portfolio_position_search_rejects_invalid_pagination(client: TestClient
             params=params,
         )
         assert response.status_code == 422
+def test_portfolio_position_search_filters_by_allocation_percentage(
+    client: TestClient,
+):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "Allocation filtering",
+            "positions": [
+                {"symbol": "AAPL", "quantity": "2", "price_per_unit": "100"},
+                {"symbol": "AMZN", "quantity": "3", "price_per_unit": "100"},
+                {"symbol": "MSFT", "quantity": "5", "price_per_unit": "100"},
+            ],
+        },
+    )
+    assert created.status_code == 201
+    portfolio_id = created.json()["id"]
+
+    response = client.get(
+        f"/api/v1/portfolio/{portfolio_id}/positions/search",
+        params={"min_allocation_pct": "30", "max_allocation_pct": "50"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["result_count"] == 2
+    assert [item["symbol"] for item in data["positions"]] == ["AMZN", "MSFT"]
+    assert [item["allocation_pct"] for item in data["positions"]] == [30, 50]
+
+
+def test_portfolio_position_search_rejects_invalid_allocation_bounds(
+    client: TestClient,
+):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={"name": "Invalid allocation bounds", "positions": []},
+    )
+    assert created.status_code == 201
+    portfolio_id = created.json()["id"]
+
+    response = client.get(
+        f"/api/v1/portfolio/{portfolio_id}/positions/search",
+        params={"min_allocation_pct": "80", "max_allocation_pct": "20"},
+    )
+
+    assert response.status_code == 422
