@@ -909,6 +909,8 @@ def search_portfolio_positions(
     max_market_value: Decimal | None = Query(default=None, ge=0),
     min_allocation_pct: Decimal | None = Query(default=None, ge=0, le=100),
     max_allocation_pct: Decimal | None = Query(default=None, ge=0, le=100),
+    min_price: Decimal | None = Query(default=None, ge=0),
+    max_price: Decimal | None = Query(default=None, ge=0),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
@@ -932,6 +934,12 @@ def search_portfolio_positions(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="min_allocation_pct cannot exceed max_allocation_pct",
+        )
+
+    if min_price is not None and max_price is not None and min_price > max_price:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="min_price cannot exceed max_price",
         )
 
     portfolio = db.scalars(
@@ -966,6 +974,10 @@ def search_portfolio_positions(
         )
 
         if prefix is not None and not position.symbol.upper().startswith(prefix):
+            continue
+        if min_price is not None and position.price_per_unit < min_price:
+            continue
+        if max_price is not None and position.price_per_unit > max_price:
             continue
         if min_market_value is not None and market_value < min_market_value:
             continue

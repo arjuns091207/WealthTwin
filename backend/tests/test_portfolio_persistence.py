@@ -1393,3 +1393,47 @@ def test_portfolio_position_search_rejects_invalid_allocation_bounds(
     )
 
     assert response.status_code == 422
+
+
+def test_portfolio_position_search_filters_by_unit_price(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "Unit price filtering",
+            "positions": [
+                {"symbol": "AAPL", "quantity": "2", "price_per_unit": "50"},
+                {"symbol": "AMZN", "quantity": "3", "price_per_unit": "100"},
+                {"symbol": "MSFT", "quantity": "4", "price_per_unit": "200"},
+            ],
+        },
+    )
+    assert created.status_code == 201
+    portfolio_id = created.json()["id"]
+
+    response = client.get(
+        f"/api/v1/portfolio/{portfolio_id}/positions/search",
+        params={"min_price": "100", "max_price": "200"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["result_count"] == 2
+    assert [item["symbol"] for item in data["positions"]] == ["AMZN", "MSFT"]
+
+
+def test_portfolio_position_search_rejects_invalid_price_bounds(
+    client: TestClient,
+):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={"name": "Invalid price bounds", "positions": []},
+    )
+    assert created.status_code == 201
+    portfolio_id = created.json()["id"]
+
+    response = client.get(
+        f"/api/v1/portfolio/{portfolio_id}/positions/search",
+        params={"min_price": "200", "max_price": "100"},
+    )
+
+    assert response.status_code == 422
