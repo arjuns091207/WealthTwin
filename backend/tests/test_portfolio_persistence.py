@@ -1295,3 +1295,56 @@ def test_portfolio_position_search_returns_404_for_unknown_portfolio(
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Portfolio not found"
+
+def test_portfolio_position_search_paginates_results(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={
+            "name": "Position pagination",
+            "positions": [
+                {"symbol": "MSFT", "quantity": "1", "price_per_unit": "100"},
+                {"symbol": "AAPL", "quantity": "2", "price_per_unit": "100"},
+                {"symbol": "AMZN", "quantity": "1", "price_per_unit": "300"},
+            ],
+        },
+    )
+    assert created.status_code == 201
+    portfolio_id = created.json()["id"]
+
+    first_page = client.get(
+        f"/api/v1/portfolio/{portfolio_id}/positions/search",
+        params={"limit": 2, "offset": 0},
+    )
+    assert first_page.status_code == 200
+    data = first_page.json()
+    assert data["result_count"] == 3
+    assert data["limit"] == 2
+    assert data["offset"] == 0
+    assert data["has_more"] is True
+    assert [item["symbol"] for item in data["positions"]] == ["AAPL", "AMZN"]
+
+    second_page = client.get(
+        f"/api/v1/portfolio/{portfolio_id}/positions/search",
+        params={"limit": 2, "offset": 2},
+    )
+    assert second_page.status_code == 200
+    data = second_page.json()
+    assert data["result_count"] == 3
+    assert data["has_more"] is False
+    assert [item["symbol"] for item in data["positions"]] == ["MSFT"]
+
+
+def test_portfolio_position_search_rejects_invalid_pagination(client: TestClient):
+    created = client.post(
+        "/api/v1/portfolio",
+        json={"name": "Invalid pagination", "positions": []},
+    )
+    assert created.status_code == 201
+    portfolio_id = created.json()["id"]
+
+    for params in ({"limit": 0}, {"limit": 201}, {"offset": -1}):
+        response = client.get(
+            f"/api/v1/portfolio/{portfolio_id}/positions/search",
+            params=params,
+        )
+        assert response.status_code == 422

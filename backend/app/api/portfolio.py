@@ -907,9 +907,11 @@ def search_portfolio_positions(
     symbol_prefix: str | None = Query(default=None, min_length=1, max_length=20),
     min_market_value: Decimal | None = Query(default=None, ge=0),
     max_market_value: Decimal | None = Query(default=None, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    """Search current holdings by symbol prefix and market-value bounds."""
+    """Search current holdings with filters and pagination."""
     if (
         min_market_value is not None
         and max_market_value is not None
@@ -953,12 +955,17 @@ def search_portfolio_positions(
         })
 
     results.sort(key=lambda item: item["symbol"].upper())
+    total_count = len(results)
+    paginated_results = results[offset:offset + limit]
 
     return {
         "portfolio_id": portfolio.id,
         "portfolio_name": portfolio.name,
-        "result_count": len(results),
-        "positions": results,
+        "result_count": total_count,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + limit < total_count,
+        "positions": paginated_results,
     }
 
 
