@@ -1,13 +1,18 @@
 from decimal import Decimal
 
 from app.db.base import Base
-from app.db.models import Portfolio, PortfolioPosition
+from app.db.models import (
+    Portfolio,
+    PortfolioPosition,
+    ScenarioExecution,
+)
 
 
 def test_portfolio_tables_are_registered():
     assert set(Base.metadata.tables) == {
         "portfolios",
         "portfolio_positions",
+        "scenario_executions",
     }
 
 
@@ -62,3 +67,23 @@ def test_portfolio_relationship_connects_positions():
 
     assert position.portfolio is portfolio
     assert position in portfolio.positions
+
+def test_scenario_execution_stores_inputs_and_results():
+    assert ScenarioExecution.__table__.c.inputs.type.__class__.__name__ == "JSON"
+    assert ScenarioExecution.__table__.c.results.type.__class__.__name__ == "JSON"
+
+
+def test_scenario_execution_fingerprint_is_indexed():
+    indexes = {
+        index.name
+        for index in ScenarioExecution.__table__.indexes
+    }
+
+    assert "ix_scenario_executions_fingerprint" in indexes
+    assert "ix_scenario_executions_scenario_id" in indexes
+
+
+def test_scenario_execution_fingerprint_is_not_unique():
+    column = ScenarioExecution.__table__.c.input_fingerprint
+
+    assert column.unique is not True

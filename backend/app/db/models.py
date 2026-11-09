@@ -5,6 +5,8 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    JSON,
+    Index,
     Numeric,
     String,
     UniqueConstraint,
@@ -81,4 +83,48 @@ class PortfolioPosition(Base):
 
     portfolio: Mapped[Portfolio] = relationship(
         back_populates="positions",
+    )
+
+
+class ScenarioExecution(Base):
+    __tablename__ = "scenario_executions"
+
+    __table_args__ = (
+        Index(
+            "ix_scenario_executions_fingerprint",
+            "input_fingerprint",
+        ),
+        Index(
+            "ix_scenario_executions_scenario_id",
+            "scenario_id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    scenario_id: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
+
+    input_fingerprint: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
+
+    inputs: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+    )
+
+    results: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        server_default=text("now()"),
+        nullable=False,
     )
