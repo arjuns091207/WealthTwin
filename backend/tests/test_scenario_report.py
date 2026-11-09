@@ -1,5 +1,6 @@
 from collections.abc import Generator
 
+from decimal import Decimal
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -282,3 +283,54 @@ def test_unknown_scenario_execution_returns_404(
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Scenario execution not found"
+
+def test_scenario_history_preserves_decimal_precision(
+    client: TestClient,
+):
+    payload = {
+        "scenario_id": "precision-test",
+        "positions": [
+            {
+                "symbol": "PRECISE",
+                "quantity": "0.123456789123456789",
+                "price_per_unit": "0.987654321987654321",
+                "shock_percent": "-12.3456789",
+            }
+        ],
+    }
+
+    created = client.post(
+        "/api/v1/scenarios/report",
+        json=payload,
+    )
+
+    assert created.status_code == 200
+
+    execution_id = created.json()["execution_id"]
+
+    retrieved = client.get(
+        f"/api/v1/scenarios/executions/{execution_id}"
+    )
+
+    assert retrieved.status_code == 200
+
+    data = retrieved.json()
+
+    assert (
+        data["inputs"]["positions"][0]["quantity"]
+        == "0.123456789123456789"
+    )
+    assert (
+        data["inputs"]["positions"][0]["price_per_unit"]
+        == "0.987654321987654321"
+    )
+    assert (
+        data["inputs"]["positions"][0]["shock_percent"]
+        == "-12.3456789"
+    )
+    assert Decimal(
+        data["results"]["positions"][0]["value_before"]
+    ) == (
+        Decimal("0.123456789123456789")
+        * Decimal("0.987654321987654321")
+    )
